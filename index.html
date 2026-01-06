@@ -7,12 +7,12 @@
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
     body { margin: 0; background: #0b0d12; color: #eef1f7; }
-    .wrap { max-width: 920px; margin: 0 auto; padding: 18px; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 18px; }
     h1 { font-size: 20px; margin: 0 0 10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .card { background: #121726; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px; }
     .card.active { border-color: rgba(255, 107, 107, 0.55); box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.25) inset; }
     .row { display: flex; gap: 12px; flex-wrap: wrap; }
-    .row > * { flex: 1; min-width: 220px; }
+    .row > * { flex: 1; min-width: 210px; }
     .muted { color: rgba(238,241,247,0.75); font-size: 13px; }
     .big { font-size: 34px; font-weight: 750; letter-spacing: 0.2px; }
     .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
@@ -52,20 +52,18 @@
     .topbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .spacer { flex:1; }
 
-    .pulse {
-      animation: pulse 1.2s ease-in-out infinite;
-    }
+    .pulse { animation: pulse 1.2s ease-in-out infinite; }
     @keyframes pulse {
       0% { transform: scale(1); opacity: 1; }
       50% { transform: scale(1.02); opacity: 0.92; }
       100% { transform: scale(1); opacity: 1; }
     }
 
-    /* Mobile comfort */
-    @media (max-width: 520px) {
+    @media (max-width: 560px) {
       button { min-width: 0; flex: 1; }
       #startBtn, #endBtn { flex: 1 1 100%; }
       .footer { gap: 8px; }
+      .row > * { min-width: 160px; }
     }
   </style>
 </head>
@@ -110,6 +108,10 @@
     <div class="card" style="margin-top: 14px;">
       <div class="row">
         <div>
+          <div class="muted">Contractions (last 10 min)</div>
+          <div id="statLast10" class="big" style="font-size: 26px;">—</div>
+        </div>
+        <div>
           <div class="muted">Last duration</div>
           <div id="statLastDur" class="big" style="font-size: 26px;">—</div>
         </div>
@@ -149,12 +151,15 @@
   <script>
     // ---- Settings ----
     const TIME_ZONE = "Australia/Sydney";
-    const STORAGE_KEY = "contraction_timer_v2";
+    const STORAGE_KEY = "contraction_timer_v3";
 
-    // Quiet indicator thresholds (common hospital guidance like "5-1-1"):
+    // Quiet indicator thresholds (common guidance like "5-1-1"):
     const INDICATOR_MIN_DURATION_SEC = 60;      // lasting 1 minute
     const INDICATOR_MAX_INTERVAL_SEC = 5 * 60;  // 5 minutes apart (start-to-start)
     const INDICATOR_COUNT = 3;                  // last 3 contractions
+
+    // Rolling frequency window:
+    const LAST10_WINDOW_MS = 10 * 60 * 1000;
 
     // ---- State ----
     /** @type {{startMs:number, endMs:number, startISO:string, endISO:string}[]} */
@@ -253,6 +258,7 @@
 
     const logBody = document.getElementById("logBody");
 
+    const statLast10 = document.getElementById("statLast10");
     const statLastDur = document.getElementById("statLastDur");
     const statLastInt = document.getElementById("statLastInt");
     const statLastRest = document.getElementById("statLastRest");
@@ -273,11 +279,18 @@
       return diffSeconds(prev.endMs, cur.startMs);
     }
 
+    function countContractionsLast10Min(nowMs) {
+      const cutoff = nowMs - LAST10_WINDOW_MS;
+      // Count contractions whose START time is within the last 10 minutes
+      return logs.filter(c => c.startMs >= cutoff && c.startMs <= nowMs).length;
+    }
+
     function computePatternIndicator() {
       if (logs.length < INDICATOR_COUNT) return { show: false };
 
-      // Look at last N contractions only
       const recent = logs.slice(-INDICATOR_COUNT);
+
+      // Check durations
       for (let i = 0; i < recent.length; i++) {
         const c = recent[i];
         const dur = diffSeconds(c.startMs, c.endMs);
@@ -286,7 +299,7 @@
         }
       }
 
-      // Need intervals between those last N (so N-1 intervals)
+      // Check intervals between those last N contractions (N-1 intervals)
       const startIndex = logs.length - INDICATOR_COUNT;
       const intervals = [];
       for (let i = startIndex + 1; i < logs.length; i++) {
@@ -300,7 +313,6 @@
         return { show: true, level: "warn", text: "🏥 Pattern consistent with active labour (consider calling/going in)" };
       }
 
-      // if durations are long but intervals are still wider
       return { show: true, level: "good", text: "✅ Strong contractions logged (keep timing)" };
     }
 
@@ -338,6 +350,9 @@
     }
 
     function renderStats() {
+      const nowMs = Date.now();
+      statLast10.textContent = String(countContractionsLast10Min(nowMs));
+
       if (logs.length === 0) {
         statLastDur.textContent = "—";
         statLastInt.textContent = "—";
@@ -359,7 +374,7 @@
       const lastRestSec = logs.length >= 2 ? restEndToStartSec(logs.length - 1) : null;
       statLastRest.textContent = lastRestSec == null ? "—" : formatHMMSS(lastRestSec);
 
-      // average interval of last 5 start-to-start gaps
+      // Average interval of last 5 start-to-start gaps
       const intervals = [];
       for (let i = Math.max(1, logs.length - 5); i < logs.length; i++) {
         const sec = intervalStartToStartSec(i);
@@ -403,7 +418,6 @@
       }
       patternBadge.style.display = "inline-flex";
       patternBadge.textContent = info.text;
-
       patternBadge.className = "pill " + (info.level || "neutral");
     }
 
@@ -472,9 +486,9 @@
       const lines = [];
       lines.push("Contraction summary (Sydney)");
       lines.push(`As of: ${nowStr}`);
+      lines.push(`Contractions in last 10 min: ${countContractionsLast10Min(nowMs)}`);
       lines.push("");
 
-      // Build bullet list showing duration + start-to-start interval where possible
       for (let i = 0; i < lastN.length; i++) {
         const globalIndex = logs.length - lastN.length + i;
         const c = lastN[i];
@@ -491,18 +505,13 @@
       }
 
       lines.push("");
-      lines.push("Tip: Hospitals usually use start-to-start for “minutes apart”.");
+      lines.push("Hospitals usually use start-to-start for “minutes apart”.");
 
       const text = lines.join("\n");
       await copyText(text);
 
-      // If Web Share is available, offer it after copying (best of both worlds)
       if (navigator.share) {
-        try {
-          await navigator.share({ title: "Contraction summary", text });
-        } catch {
-          // user canceled share sheet; already copied
-        }
+        try { await navigator.share({ title: "Contraction summary", text }); } catch { /* canceled */ }
       }
       toast("Copied");
     }
@@ -512,7 +521,6 @@
         await navigator.clipboard.writeText(text);
         return true;
       } catch {
-        // Fallback
         const ta = document.createElement("textarea");
         ta.value = text;
         ta.style.position = "fixed";
@@ -527,7 +535,6 @@
     }
 
     function toast(msg) {
-      // tiny, simple toast without dependencies
       const el = document.createElement("div");
       el.textContent = msg;
       el.style.position = "fixed";
@@ -539,7 +546,7 @@
       el.style.background = "rgba(18,23,38,0.92)";
       el.style.border = "1px solid rgba(255,255,255,0.12)";
       el.style.color = "#eef1f7";
-      el.style.fontWeight = "700";
+      el.style.fontWeight = "800";
       el.style.zIndex = "9999";
       el.style.backdropFilter = "blur(8px)";
       document.body.appendChild(el);
@@ -564,7 +571,14 @@
     // ---- Init ----
     load();
     renderAll();
-    setInterval(renderNow, 250);
+
+    // Keep Sydney time + rolling 10-min count fresh without redrawing the whole table constantly.
+    // Render the heavy bits on actions; update light stats every second.
+    setInterval(() => {
+      renderNow();
+      renderStats();
+      renderIndicator();
+    }, 1000);
   </script>
 </body>
 </html>
