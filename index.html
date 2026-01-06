@@ -7,48 +7,79 @@
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
     body { margin: 0; background: #0b0d12; color: #eef1f7; }
-    .wrap { max-width: 820px; margin: 0 auto; padding: 18px; }
-    h1 { font-size: 20px; margin: 0 0 10px; }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 18px; }
+    h1 { font-size: 20px; margin: 0 0 10px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .card { background: #121726; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px; }
+    .card.active { border-color: rgba(255, 107, 107, 0.55); box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.25) inset; }
     .row { display: flex; gap: 12px; flex-wrap: wrap; }
     .row > * { flex: 1; min-width: 220px; }
     .muted { color: rgba(238,241,247,0.75); font-size: 13px; }
-    .big { font-size: 34px; font-weight: 700; letter-spacing: 0.2px; }
+    .big { font-size: 34px; font-weight: 750; letter-spacing: 0.2px; }
     .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
     button {
       border: 0;
       border-radius: 12px;
       padding: 12px 14px;
-      font-weight: 650;
+      font-weight: 750;
       cursor: pointer;
       color: #0b0d12;
       background: #8be9fd;
       min-width: 160px;
     }
+    #startBtn { font-size: 18px; padding: 16px 18px; }
     button.secondary { background: #c7cbd6; }
     button.danger { background: #ff6b6b; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
+
     .pill {
       display: inline-flex; gap: 8px; align-items: center;
       padding: 6px 10px; border-radius: 999px;
       background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);
       font-size: 13px;
     }
+    .pill.good { border-color: rgba(81, 207, 102, 0.45); background: rgba(81, 207, 102, 0.10); }
+    .pill.warn { border-color: rgba(255, 212, 59, 0.45); background: rgba(255, 212, 59, 0.10); }
+    .pill.neutral { border-color: rgba(255,255,255,0.14); background: rgba(255,255,255,0.06); }
+
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 14px; }
-    th { color: rgba(238,241,247,0.80); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    th { color: rgba(238,241,247,0.80); font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
     .right { text-align: right; }
-    .footer { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .footer { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
     .hint { font-size: 12px; color: rgba(238,241,247,0.72); }
-    a { color: #8be9fd; }
     .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 2px 6px; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; background: rgba(255,255,255,0.06); }
+
+    .topbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .spacer { flex:1; }
+
+    .pulse {
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.02); opacity: 0.92; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* Mobile comfort */
+    @media (max-width: 520px) {
+      button { min-width: 0; flex: 1; }
+      #startBtn, #endBtn { flex: 1 1 100%; }
+      .footer { gap: 8px; }
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Contraction Timer <span class="pill">Sydney time</span></h1>
+    <div class="topbar">
+      <h1 style="margin:0;">
+        Contraction Timer <span class="pill neutral">Sydney time</span>
+        <span id="patternBadge" class="pill neutral" style="display:none;"></span>
+      </h1>
+      <div class="spacer"></div>
+    </div>
 
-    <div class="card">
+    <div id="mainCard" class="card">
       <div class="row">
         <div>
           <div class="muted">Current time (Sydney)</div>
@@ -65,6 +96,7 @@
       <div class="btns">
         <button id="startBtn">Start contraction</button>
         <button id="endBtn" class="secondary" disabled>End contraction</button>
+        <button id="shareBtn" class="secondary">Share / copy</button>
         <button id="undoBtn" class="secondary" disabled>Undo last</button>
         <button id="resetBtn" class="danger">Clear all</button>
       </div>
@@ -86,6 +118,10 @@
           <div id="statLastInt" class="big" style="font-size: 26px;">—</div>
         </div>
         <div>
+          <div class="muted">Last rest time (end-to-start)</div>
+          <div id="statLastRest" class="big" style="font-size: 26px;">—</div>
+        </div>
+        <div>
           <div class="muted">Average interval (last 5)</div>
           <div id="statAvg5" class="big" style="font-size: 26px;">—</div>
         </div>
@@ -98,13 +134,14 @@
             <th>Start (Sydney)</th>
             <th>End (Sydney)</th>
             <th class="right">Duration</th>
-            <th class="right">Interval*</th>
+            <th class="right">Interval (Start-to-Start)</th>
+            <th class="right">Rest (End-to-Start)</th>
           </tr>
         </thead>
         <tbody id="logBody"></tbody>
       </table>
       <div class="hint" style="margin-top: 8px;">
-        *Interval is measured from <b>start</b> of previous contraction to <b>start</b> of this one.
+        Interval is the clinical “how far apart” (start → start). Rest time is the break (end → next start).
       </div>
     </div>
   </div>
@@ -112,7 +149,12 @@
   <script>
     // ---- Settings ----
     const TIME_ZONE = "Australia/Sydney";
-    const STORAGE_KEY = "contraction_timer_v1";
+    const STORAGE_KEY = "contraction_timer_v2";
+
+    // Quiet indicator thresholds (common hospital guidance like "5-1-1"):
+    const INDICATOR_MIN_DURATION_SEC = 60;      // lasting 1 minute
+    const INDICATOR_MAX_INTERVAL_SEC = 5 * 60;  // 5 minutes apart (start-to-start)
+    const INDICATOR_COUNT = 3;                  // last 3 contractions
 
     // ---- State ----
     /** @type {{startMs:number, endMs:number, startISO:string, endISO:string}[]} */
@@ -130,6 +172,18 @@
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true
+      });
+      return fmt.format(dt);
+    }
+
+    function formatSydneyTimeOnly(ms) {
+      const dt = new Date(ms);
+      const fmt = new Intl.DateTimeFormat("en-AU", {
+        timeZone: TIME_ZONE,
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
@@ -179,12 +233,13 @@
         const data = JSON.parse(raw);
         if (Array.isArray(data.logs)) logs = data.logs;
         if (typeof data.activeStartMs === "number") activeStartMs = data.activeStartMs;
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) { /* ignore */ }
     }
 
     // ---- UI Elements ----
+    const mainCard = document.getElementById("mainCard");
+    const patternBadge = document.getElementById("patternBadge");
+
     const nowSydneyEl = document.getElementById("nowSydney");
     const nowDateSydneyEl = document.getElementById("nowDateSydney");
     const liveDurationEl = document.getElementById("liveDuration");
@@ -192,6 +247,7 @@
 
     const startBtn = document.getElementById("startBtn");
     const endBtn = document.getElementById("endBtn");
+    const shareBtn = document.getElementById("shareBtn");
     const undoBtn = document.getElementById("undoBtn");
     const resetBtn = document.getElementById("resetBtn");
 
@@ -199,28 +255,80 @@
 
     const statLastDur = document.getElementById("statLastDur");
     const statLastInt = document.getElementById("statLastInt");
+    const statLastRest = document.getElementById("statLastRest");
     const statAvg5 = document.getElementById("statAvg5");
+
+    // ---- Calculations ----
+    function intervalStartToStartSec(index) {
+      if (index <= 0) return null;
+      const prev = logs[index - 1];
+      const cur = logs[index];
+      return diffSeconds(prev.startMs, cur.startMs);
+    }
+
+    function restEndToStartSec(index) {
+      if (index <= 0) return null;
+      const prev = logs[index - 1];
+      const cur = logs[index];
+      return diffSeconds(prev.endMs, cur.startMs);
+    }
+
+    function computePatternIndicator() {
+      if (logs.length < INDICATOR_COUNT) return { show: false };
+
+      // Look at last N contractions only
+      const recent = logs.slice(-INDICATOR_COUNT);
+      for (let i = 0; i < recent.length; i++) {
+        const c = recent[i];
+        const dur = diffSeconds(c.startMs, c.endMs);
+        if (dur < INDICATOR_MIN_DURATION_SEC) {
+          return { show: true, level: "neutral", text: "Pattern: not consistent yet" };
+        }
+      }
+
+      // Need intervals between those last N (so N-1 intervals)
+      const startIndex = logs.length - INDICATOR_COUNT;
+      const intervals = [];
+      for (let i = startIndex + 1; i < logs.length; i++) {
+        const sec = intervalStartToStartSec(i);
+        if (typeof sec === "number") intervals.push(sec);
+      }
+
+      const allClose = intervals.length >= 1 && intervals.every((s) => s <= INDICATOR_MAX_INTERVAL_SEC);
+
+      if (allClose) {
+        return { show: true, level: "warn", text: "🏥 Pattern consistent with active labour (consider calling/going in)" };
+      }
+
+      // if durations are long but intervals are still wider
+      return { show: true, level: "good", text: "✅ Strong contractions logged (keep timing)" };
+    }
 
     // ---- Rendering ----
     function renderNow() {
       const ms = Date.now();
-      nowSydneyEl.textContent = formatSydneyDateTime(ms).split(", ").slice(1).join(", ").trim(); // show time-ish
+      nowSydneyEl.textContent = formatSydneyTimeOnly(ms);
       nowDateSydneyEl.textContent = formatSydneyDate(ms);
     }
 
     function renderActive() {
       const isActive = typeof activeStartMs === "number";
+
       startBtn.disabled = isActive;
       endBtn.disabled = !isActive;
-      statusTextEl.textContent = isActive ? `Timing since ${formatSydneyDateTime(activeStartMs)}` : "Not timing";
+
+      mainCard.classList.toggle("active", isActive);
+      liveDurationEl.classList.toggle("pulse", isActive);
 
       if (!isActive) {
+        statusTextEl.textContent = "Not timing";
         liveDurationEl.textContent = "00:00";
         if (liveTicker) { clearInterval(liveTicker); liveTicker = null; }
         return;
       }
 
-      // update immediately + start ticker
+      statusTextEl.textContent = "Contraction in progress";
+
       const tick = () => {
         const secs = diffSeconds(activeStartMs, Date.now());
         liveDurationEl.textContent = formatMMSS(secs);
@@ -229,17 +337,11 @@
       if (!liveTicker) liveTicker = setInterval(tick, 250);
     }
 
-    function calcIntervalSeconds(index) {
-      if (index <= 0) return null;
-      const prev = logs[index - 1];
-      const cur = logs[index];
-      return diffSeconds(prev.startMs, cur.startMs);
-    }
-
     function renderStats() {
       if (logs.length === 0) {
         statLastDur.textContent = "—";
         statLastInt.textContent = "—";
+        statLastRest.textContent = "—";
         statAvg5.textContent = "—";
         undoBtn.disabled = true;
         return;
@@ -251,13 +353,16 @@
       const lastDurSec = diffSeconds(last.startMs, last.endMs);
       statLastDur.textContent = formatHMMSS(lastDurSec);
 
-      const lastIntSec = logs.length >= 2 ? calcIntervalSeconds(logs.length - 1) : null;
+      const lastIntSec = logs.length >= 2 ? intervalStartToStartSec(logs.length - 1) : null;
       statLastInt.textContent = lastIntSec == null ? "—" : formatHMMSS(lastIntSec);
+
+      const lastRestSec = logs.length >= 2 ? restEndToStartSec(logs.length - 1) : null;
+      statLastRest.textContent = lastRestSec == null ? "—" : formatHMMSS(lastRestSec);
 
       // average interval of last 5 start-to-start gaps
       const intervals = [];
       for (let i = Math.max(1, logs.length - 5); i < logs.length; i++) {
-        const sec = calcIntervalSeconds(i);
+        const sec = intervalStartToStartSec(i);
         if (typeof sec === "number") intervals.push(sec);
       }
       if (intervals.length === 0) {
@@ -272,7 +377,8 @@
       logBody.innerHTML = "";
       logs.forEach((c, idx) => {
         const durSec = diffSeconds(c.startMs, c.endMs);
-        const intSec = calcIntervalSeconds(idx);
+        const intSec = intervalStartToStartSec(idx);
+        const restSec = restEndToStartSec(idx);
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
@@ -281,9 +387,24 @@
           <td>${formatSydneyDateTime(c.endMs)}</td>
           <td class="right">${formatHMMSS(durSec)}</td>
           <td class="right">${intSec == null ? "—" : formatHMMSS(intSec)}</td>
+          <td class="right">${restSec == null ? "—" : formatHMMSS(restSec)}</td>
         `;
         logBody.appendChild(tr);
       });
+    }
+
+    function renderIndicator() {
+      const info = computePatternIndicator();
+      if (!info.show) {
+        patternBadge.style.display = "none";
+        patternBadge.textContent = "";
+        patternBadge.className = "pill neutral";
+        return;
+      }
+      patternBadge.style.display = "inline-flex";
+      patternBadge.textContent = info.text;
+
+      patternBadge.className = "pill " + (info.level || "neutral");
     }
 
     function renderAll() {
@@ -291,6 +412,7 @@
       renderActive();
       renderStats();
       renderLog();
+      renderIndicator();
     }
 
     // ---- Actions ----
@@ -299,7 +421,6 @@
       activeStartMs = Date.now();
       save();
       renderAll();
-      // small haptic feel on mobile if supported (non-critical)
       try { navigator.vibrate?.(20); } catch {}
     }
 
@@ -307,12 +428,6 @@
       if (typeof activeStartMs !== "number") return;
       const endMs = Date.now();
       const startMs = activeStartMs;
-
-      // Guard: avoid accidental double tap creating 0s contractions
-      if (endMs - startMs < 1500) {
-        // still allow, but it’s usually a mis-tap; keep it simple:
-        // you can undo immediately if needed
-      }
 
       logs.push({
         startMs,
@@ -342,9 +457,100 @@
       renderAll();
     }
 
+    async function shareCopy() {
+      const nowMs = Date.now();
+      const nowStr = formatSydneyDateTime(nowMs);
+
+      if (logs.length === 0) {
+        const text = `Contraction log (Sydney)\nNo contractions logged yet.\n${nowStr}`;
+        await copyText(text);
+        toast("Copied");
+        return;
+      }
+
+      const lastN = logs.slice(-5);
+      const lines = [];
+      lines.push("Contraction summary (Sydney)");
+      lines.push(`As of: ${nowStr}`);
+      lines.push("");
+
+      // Build bullet list showing duration + start-to-start interval where possible
+      for (let i = 0; i < lastN.length; i++) {
+        const globalIndex = logs.length - lastN.length + i;
+        const c = lastN[i];
+        const durSec = diffSeconds(c.startMs, c.endMs);
+        const intSec = intervalStartToStartSec(globalIndex);
+        const restSec = restEndToStartSec(globalIndex);
+
+        const parts = [];
+        parts.push(`${formatHMMSS(durSec)} long`);
+        if (intSec != null) parts.push(`${formatHMMSS(intSec)} apart (start-to-start)`);
+        if (restSec != null) parts.push(`${formatHMMSS(restSec)} rest`);
+
+        lines.push(`• ${parts.join(", ")} — start ${formatSydneyTimeOnly(c.startMs)}`);
+      }
+
+      lines.push("");
+      lines.push("Tip: Hospitals usually use start-to-start for “minutes apart”.");
+
+      const text = lines.join("\n");
+      await copyText(text);
+
+      // If Web Share is available, offer it after copying (best of both worlds)
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: "Contraction summary", text });
+        } catch {
+          // user canceled share sheet; already copied
+        }
+      }
+      toast("Copied");
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fallback
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.top = "-9999px";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try { document.execCommand("copy"); } catch {}
+        document.body.removeChild(ta);
+        return true;
+      }
+    }
+
+    function toast(msg) {
+      // tiny, simple toast without dependencies
+      const el = document.createElement("div");
+      el.textContent = msg;
+      el.style.position = "fixed";
+      el.style.left = "50%";
+      el.style.bottom = "22px";
+      el.style.transform = "translateX(-50%)";
+      el.style.padding = "10px 12px";
+      el.style.borderRadius = "12px";
+      el.style.background = "rgba(18,23,38,0.92)";
+      el.style.border = "1px solid rgba(255,255,255,0.12)";
+      el.style.color = "#eef1f7";
+      el.style.fontWeight = "700";
+      el.style.zIndex = "9999";
+      el.style.backdropFilter = "blur(8px)";
+      document.body.appendChild(el);
+      setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity 250ms"; }, 900);
+      setTimeout(() => { el.remove(); }, 1300);
+    }
+
     // ---- Wire up ----
     startBtn.addEventListener("click", startContraction);
     endBtn.addEventListener("click", endContraction);
+    shareBtn.addEventListener("click", shareCopy);
     undoBtn.addEventListener("click", undoLast);
     resetBtn.addEventListener("click", resetAll);
 
@@ -358,7 +564,7 @@
     // ---- Init ----
     load();
     renderAll();
-    setInterval(renderNow, 250); // keep Sydney time display fresh
+    setInterval(renderNow, 250);
   </script>
 </body>
 </html>
