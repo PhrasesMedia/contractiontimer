@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Contraction Timer (Sydney)</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background: #0b0d12; color: #eef1f7; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 18px; }
+    h1 { font-size: 20px; margin: 0 0 10px; }
+    .card { background: #121726; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row > * { flex: 1; min-width: 220px; }
+    .muted { color: rgba(238,241,247,0.75); font-size: 13px; }
+    .big { font-size: 34px; font-weight: 700; letter-spacing: 0.2px; }
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-weight: 650;
+      cursor: pointer;
+      color: #0b0d12;
+      background: #8be9fd;
+      min-width: 160px;
+    }
+    button.secondary { background: #c7cbd6; }
+    button.danger { background: #ff6b6b; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .pill {
+      display: inline-flex; gap: 8px; align-items: center;
+      padding: 6px 10px; border-radius: 999px;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);
+      font-size: 13px;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 14px; }
+    th { color: rgba(238,241,247,0.80); font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .right { text-align: right; }
+    .footer { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .hint { font-size: 12px; color: rgba(238,241,247,0.72); }
+    a { color: #8be9fd; }
+    .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 2px 6px; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; background: rgba(255,255,255,0.06); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Contraction Timer <span class="pill">Sydney time</span></h1>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="muted">Current time (Sydney)</div>
+          <div id="nowSydney" class="big">--:--:--</div>
+          <div class="muted" id="nowDateSydney">—</div>
+        </div>
+        <div>
+          <div class="muted">Current contraction duration</div>
+          <div id="liveDuration" class="big">00:00</div>
+          <div class="muted" id="statusText">Not timing</div>
+        </div>
+      </div>
+
+      <div class="btns">
+        <button id="startBtn">Start contraction</button>
+        <button id="endBtn" class="secondary" disabled>End contraction</button>
+        <button id="undoBtn" class="secondary" disabled>Undo last</button>
+        <button id="resetBtn" class="danger">Clear all</button>
+      </div>
+
+      <div class="footer">
+        <span class="hint">Tip: on iPhone, add to Home Screen for full-screen use.</span>
+        <span class="hint">Keyboard: <span class="kbd">S</span> start, <span class="kbd">E</span> end</span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 14px;">
+      <div class="row">
+        <div>
+          <div class="muted">Last duration</div>
+          <div id="statLastDur" class="big" style="font-size: 26px;">—</div>
+        </div>
+        <div>
+          <div class="muted">Last interval (start-to-start)</div>
+          <div id="statLastInt" class="big" style="font-size: 26px;">—</div>
+        </div>
+        <div>
+          <div class="muted">Average interval (last 5)</div>
+          <div id="statAvg5" class="big" style="font-size: 26px;">—</div>
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Start (Sydney)</th>
+            <th>End (Sydney)</th>
+            <th class="right">Duration</th>
+            <th class="right">Interval*</th>
+          </tr>
+        </thead>
+        <tbody id="logBody"></tbody>
+      </table>
+      <div class="hint" style="margin-top: 8px;">
+        *Interval is measured from <b>start</b> of previous contraction to <b>start</b> of this one.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ---- Settings ----
+    const TIME_ZONE = "Australia/Sydney";
+    const STORAGE_KEY = "contraction_timer_v1";
+
+    // ---- State ----
+    /** @type {{startMs:number, endMs:number, startISO:string, endISO:string}[]} */
+    let logs = [];
+    let activeStartMs = null;
+    let liveTicker = null;
+
+    // ---- Helpers ----
+    const pad2 = (n) => String(n).padStart(2, "0");
+
+    function formatSydneyDateTime(ms) {
+      const dt = new Date(ms);
+      const fmt = new Intl.DateTimeFormat("en-AU", {
+        timeZone: TIME_ZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true
+      });
+      return fmt.format(dt);
+    }
+
+    function formatSydneyDate(ms) {
+      const dt = new Date(ms);
+      const fmt = new Intl.DateTimeFormat("en-AU", {
+        timeZone: TIME_ZONE,
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric"
+      });
+      return fmt.format(dt);
+    }
+
+    function formatMMSS(totalSeconds) {
+      const m = Math.floor(totalSeconds / 60);
+      const s = totalSeconds % 60;
+      return `${pad2(m)}:${pad2(s)}`;
+    }
+
+    function formatHMMSS(totalSeconds) {
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = totalSeconds % 60;
+      return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`;
+    }
+
+    function diffSeconds(aMs, bMs) {
+      return Math.max(0, Math.round((bMs - aMs) / 1000));
+    }
+
+    function save() {
+      const data = { logs, activeStartMs };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.logs)) logs = data.logs;
+        if (typeof data.activeStartMs === "number") activeStartMs = data.activeStartMs;
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // ---- UI Elements ----
+    const nowSydneyEl = document.getElementById("nowSydney");
+    const nowDateSydneyEl = document.getElementById("nowDateSydney");
+    const liveDurationEl = document.getElementById("liveDuration");
+    const statusTextEl = document.getElementById("statusText");
+
+    const startBtn = document.getElementById("startBtn");
+    const endBtn = document.getElementById("endBtn");
+    const undoBtn = document.getElementById("undoBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    const logBody = document.getElementById("logBody");
+
+    const statLastDur = document.getElementById("statLastDur");
+    const statLastInt = document.getElementById("statLastInt");
+    const statAvg5 = document.getElementById("statAvg5");
+
+    // ---- Rendering ----
+    function renderNow() {
+      const ms = Date.now();
+      nowSydneyEl.textContent = formatSydneyDateTime(ms).split(", ").slice(1).join(", ").trim(); // show time-ish
+      nowDateSydneyEl.textContent = formatSydneyDate(ms);
+    }
+
+    function renderActive() {
+      const isActive = typeof activeStartMs === "number";
+      startBtn.disabled = isActive;
+      endBtn.disabled = !isActive;
+      statusTextEl.textContent = isActive ? `Timing since ${formatSydneyDateTime(activeStartMs)}` : "Not timing";
+
+      if (!isActive) {
+        liveDurationEl.textContent = "00:00";
+        if (liveTicker) { clearInterval(liveTicker); liveTicker = null; }
+        return;
+      }
+
+      // update immediately + start ticker
+      const tick = () => {
+        const secs = diffSeconds(activeStartMs, Date.now());
+        liveDurationEl.textContent = formatMMSS(secs);
+      };
+      tick();
+      if (!liveTicker) liveTicker = setInterval(tick, 250);
+    }
+
+    function calcIntervalSeconds(index) {
+      if (index <= 0) return null;
+      const prev = logs[index - 1];
+      const cur = logs[index];
+      return diffSeconds(prev.startMs, cur.startMs);
+    }
+
+    function renderStats() {
+      if (logs.length === 0) {
+        statLastDur.textContent = "—";
+        statLastInt.textContent = "—";
+        statAvg5.textContent = "—";
+        undoBtn.disabled = true;
+        return;
+      }
+
+      undoBtn.disabled = false;
+
+      const last = logs[logs.length - 1];
+      const lastDurSec = diffSeconds(last.startMs, last.endMs);
+      statLastDur.textContent = formatHMMSS(lastDurSec);
+
+      const lastIntSec = logs.length >= 2 ? calcIntervalSeconds(logs.length - 1) : null;
+      statLastInt.textContent = lastIntSec == null ? "—" : formatHMMSS(lastIntSec);
+
+      // average interval of last 5 start-to-start gaps
+      const intervals = [];
+      for (let i = Math.max(1, logs.length - 5); i < logs.length; i++) {
+        const sec = calcIntervalSeconds(i);
+        if (typeof sec === "number") intervals.push(sec);
+      }
+      if (intervals.length === 0) {
+        statAvg5.textContent = "—";
+      } else {
+        const avg = Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length);
+        statAvg5.textContent = formatHMMSS(avg);
+      }
+    }
+
+    function renderLog() {
+      logBody.innerHTML = "";
+      logs.forEach((c, idx) => {
+        const durSec = diffSeconds(c.startMs, c.endMs);
+        const intSec = calcIntervalSeconds(idx);
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td>${formatSydneyDateTime(c.startMs)}</td>
+          <td>${formatSydneyDateTime(c.endMs)}</td>
+          <td class="right">${formatHMMSS(durSec)}</td>
+          <td class="right">${intSec == null ? "—" : formatHMMSS(intSec)}</td>
+        `;
+        logBody.appendChild(tr);
+      });
+    }
+
+    function renderAll() {
+      renderNow();
+      renderActive();
+      renderStats();
+      renderLog();
+    }
+
+    // ---- Actions ----
+    function startContraction() {
+      if (typeof activeStartMs === "number") return;
+      activeStartMs = Date.now();
+      save();
+      renderAll();
+      // small haptic feel on mobile if supported (non-critical)
+      try { navigator.vibrate?.(20); } catch {}
+    }
+
+    function endContraction() {
+      if (typeof activeStartMs !== "number") return;
+      const endMs = Date.now();
+      const startMs = activeStartMs;
+
+      // Guard: avoid accidental double tap creating 0s contractions
+      if (endMs - startMs < 1500) {
+        // still allow, but it’s usually a mis-tap; keep it simple:
+        // you can undo immediately if needed
+      }
+
+      logs.push({
+        startMs,
+        endMs,
+        startISO: new Date(startMs).toISOString(),
+        endISO: new Date(endMs).toISOString()
+      });
+
+      activeStartMs = null;
+      save();
+      renderAll();
+      try { navigator.vibrate?.([15, 30, 15]); } catch {}
+    }
+
+    function undoLast() {
+      if (logs.length === 0) return;
+      logs.pop();
+      save();
+      renderAll();
+    }
+
+    function resetAll() {
+      if (!confirm("Clear all logged contractions?")) return;
+      logs = [];
+      activeStartMs = null;
+      save();
+      renderAll();
+    }
+
+    // ---- Wire up ----
+    startBtn.addEventListener("click", startContraction);
+    endBtn.addEventListener("click", endContraction);
+    undoBtn.addEventListener("click", undoLast);
+    resetBtn.addEventListener("click", resetAll);
+
+    document.addEventListener("keydown", (e) => {
+      if (e.target && ["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+      const k = (e.key || "").toLowerCase();
+      if (k === "s") startContraction();
+      if (k === "e") endContraction();
+    });
+
+    // ---- Init ----
+    load();
+    renderAll();
+    setInterval(renderNow, 250); // keep Sydney time display fresh
+  </script>
+</body>
+</html>
